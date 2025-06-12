@@ -3,17 +3,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Tarea implements Serializable {
+    //atributos de la clase
     private static final long serialVersionUID = 1L;
-
     private static int contadorId = 1;
-
     private int id;
     private String nombre;
     private int duracion; // duración en segundos
     private boolean enProgreso;
     private boolean tareaCompletada;
     private boolean pausada;
-
     public static List<Tarea> listaTareas = new ArrayList<>();
 
     public Tarea(String nombre, int duracionSegundos) {
@@ -77,12 +75,10 @@ public class Tarea implements Serializable {
         return String.format("%02d:%02d", minutos, segundos);
     }
 
-    // Método para crear una tarea (ejemplo con mensaje opcional)
+    // Metodo para crear una tarea (ejemplo con mensaje opcional)
     public static void crearTarea(Object ventana, Tarea tarea) {
         listaTareas.add(tarea);
         guardarEnArchivoTareas();
-        // Aquí podrías mostrar mensajes si quieres, ejemplo:
-        // JOptionPane.showMessageDialog((Component)ventana, "Tarea creada");
     }
 
     // Guarda la lista de tareas en un archivo (serialización)

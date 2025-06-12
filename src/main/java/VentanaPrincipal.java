@@ -1,9 +1,11 @@
-// (Mantén tus imports iguales)
-
+import javax.sound.sampled.AudioInputStream;
+import javax.sound.sampled.AudioSystem;
+import javax.sound.sampled.Clip;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
+import java.io.File;
 import java.util.*;
 import java.util.List;
 import java.util.Timer;
@@ -17,7 +19,8 @@ public class VentanaPrincipal extends JFrame {
     private JLabel temporizadorLabel;
     private Timer timer;
     private boolean enDescanso = false;
-    private int tiempoRestante = 1500; // 25 min en seg
+    private boolean temporizadorPausado = false;
+    private int tiempoRestante = 1500; //25 minutos en segundos
     private List<Tarea> tareasEnProgreso = new ArrayList<>();
     private javax.swing.Timer cronometro;
 
@@ -40,41 +43,40 @@ public class VentanaPrincipal extends JFrame {
 
         // Panel Tareas Nuevas
         JPanel panelNuevas = new JPanel(new BorderLayout());
-        modeloNuevas = new DefaultTableModel(new String[]{"ID", "Nombre", "Duración (min)"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false; // 🔒 Esto impide la edición de cualquier celda
-            }
-        };
+        modeloNuevas = new DefaultTableModel(new String[]{"ID", "Nombre", "Duración (min)"}, 0);
 
         tablaNuevas = new JTable(modeloNuevas);
 
-        // ✅ Selección completa por fila
+        //Selección completa por fila
         tablaNuevas.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         tablaNuevas.setRowSelectionAllowed(true);
         tablaNuevas.setColumnSelectionAllowed(false);
         tablaNuevas.setCellSelectionEnabled(false);
 
-        // 🚫 Evitar que entre en modo edición
-        tablaNuevas.setDefaultEditor(Object.class, null);
-
         // Estética de selección
-        tablaNuevas.setSelectionBackground(new Color(184, 207, 229));
+        tablaNuevas.setSelectionBackground(new Color(84, 132, 185));
         tablaNuevas.setSelectionForeground(Color.BLACK);
 
-
+        //panel de nuevas tareas
         panelNuevas.add(new JScrollPane(tablaNuevas), BorderLayout.CENTER);
 
+        //panel de creacion de tareas
         JPanel panelCrear = new JPanel();
-        JTextField campoNombre = new JTextField(15);
+        JTextField campoNombre = new JTextField(10);
         JTextField campoDuracion = new JTextField(5);
+
         JButton botonCrear = new JButton("Crear tarea");
         JButton botonMoverAProgreso = new JButton("Mover a En Progreso");
+
         panelCrear.add(new JLabel("Nombre: "));
         panelCrear.add(campoNombre);
         panelCrear.add(new JLabel("Duración (min): "));
         panelCrear.add(campoDuracion);
         panelCrear.add(botonCrear);
+        panelCrear.add(new JLabel("Ejecutar tarea: "));
+        JTextField campoEjecutar= new JTextField(3);
+
+        panelCrear.add(campoEjecutar);
         panelCrear.add(botonMoverAProgreso);
         panelNuevas.add(panelCrear, BorderLayout.SOUTH);
 
@@ -97,7 +99,38 @@ public class VentanaPrincipal extends JFrame {
             }
         });
 
-        botonMoverAProgreso.addActionListener(e -> moverTareaAProgreso());
+        botonMoverAProgreso.addActionListener(e -> {
+            try {
+                String textoId = campoEjecutar.getText().trim();
+                if (textoId.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Ingresa el ID de la tarea a ejecutar.");
+                    return;
+                }
+
+                int id = Integer.parseInt(textoId);
+                boolean encontrada = false;
+
+                for (Tarea t : Tarea.listaTareas) {
+                    if (t.getId() == id && !t.getTareaCompletada( ) && !t.getEnProgreso()) {
+                        t.setEnProgreso(true);
+                        t.continuar();
+                        encontrada = true;
+                        break;
+                    }
+                }
+
+                if (encontrada) {
+                    campoEjecutar.setText("");
+                    Tarea.guardarEnArchivoTareas();
+                    cargarTareasEnTablas();
+                } else {
+                    JOptionPane.showMessageDialog(this, "No se encontró una tarea válida con ese ID.");
+                }
+
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "ID inválido. Debe ser un número entero.");
+            }
+        });
 
         // Panel En Progreso
         JPanel panelProgreso = new JPanel(new BorderLayout());
@@ -109,9 +142,18 @@ public class VentanaPrincipal extends JFrame {
         tablaProgreso = new JTable(modeloProgreso);
         panelProgreso.add(new JScrollPane(tablaProgreso), BorderLayout.CENTER);
 
-        JPanel botonesProgreso = new JPanel(new BorderLayout());
+        JPanel botonesProgreso = new JPanel();
+        botonesProgreso.setLayout(new FlowLayout(FlowLayout.LEFT));
+
+        // Campo para ingresar el ID a completar
+        botonesProgreso.add(new JLabel("Tarea completada ID: "));
+        JTextField campoCompletar = new JTextField(4);
+        botonesProgreso.add(campoCompletar);
+
+        // Botón para completar la tarea
         JButton botonCompletar = new JButton("Marcar como Completada");
-        botonesProgreso.add(botonCompletar, BorderLayout.NORTH);
+        botonesProgreso.add(botonCompletar);
+
         panelProgreso.add(botonesProgreso, BorderLayout.SOUTH);
 
         modeloProgreso.addTableModelListener(e -> {
@@ -158,23 +200,44 @@ public class VentanaPrincipal extends JFrame {
         });
 
         botonCompletar.addActionListener(e -> {
-            int fila = tablaProgreso.getSelectedRow();
-            if (fila >= 0) {
-                int id = (int) modeloProgreso.getValueAt(fila, 0);
+            try {
+                String textoId = campoCompletar.getText().trim();
+                if (textoId.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Ingresa el ID de la tarea a completar.");
+                    return;
+                }
+
+                int id = Integer.parseInt(textoId);
+                boolean encontrada = false;
+
                 for (Tarea t : Tarea.listaTareas) {
                     if (t.getId() == id) {
-                        t.setEnProgreso(false);
-                        t.setTareaCompletada(true);
-                        t.pausar();
-                        break;
+                        if (t.getEnProgreso() && !t.getTareaCompletada()) {
+                            t.setEnProgreso(false);
+                            t.setTareaCompletada(true);
+                            t.pausar();  // Por si estaba corriendo
+                            encontrada = true;
+                            break;
+                        } else {
+                            JOptionPane.showMessageDialog(this, "La tarea no está en progreso o ya está completada.");
+                            return;
+                        }
                     }
                 }
-                Tarea.guardarEnArchivoTareas();
-                cargarTareasEnTablas();
-            } else {
-                JOptionPane.showMessageDialog(this, "Selecciona una tarea para marcar como completada.");
+
+                if (encontrada) {
+                    campoCompletar.setText("");
+                    Tarea.guardarEnArchivoTareas();
+                    cargarTareasEnTablas();
+                } else {
+                    JOptionPane.showMessageDialog(this, "No se encontró una tarea con ese ID.");
+                }
+
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "ID inválido. Debe ser un número entero.");
             }
         });
+
 
         // Panel Completadas
         JPanel panelCompletadas = new JPanel(new BorderLayout());
@@ -182,27 +245,163 @@ public class VentanaPrincipal extends JFrame {
         tablaCompletadas = new JTable(modeloCompletadas);
         panelCompletadas.add(new JScrollPane(tablaCompletadas), BorderLayout.CENTER);
 
-        JButton botonEliminar = new JButton("Eliminar tarea seleccionada");
-        panelCompletadas.add(botonEliminar, BorderLayout.SOUTH);
+        // Panel inferior con campo y botón
+        JPanel panelInferior = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-        botonEliminar.addActionListener(e -> eliminarTareaCompletada());
+        // Etiqueta + campo para ID
+        panelInferior.add(new JLabel("Eliminar tarea ID: "));
+        JTextField campoEliminar = new JTextField(4);
+        panelInferior.add(campoEliminar);
+
+        // Botón de eliminar
+        JButton botonEliminar = new JButton("Eliminar tarea");
+        panelInferior.add(botonEliminar);
+
+        panelCompletadas.add(panelInferior, BorderLayout.SOUTH);
+
+        botonEliminar.addActionListener(e -> {
+            try {
+                String textoId = campoEliminar.getText().trim();
+                if (textoId.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Ingresa el ID de la tarea a eliminar.");
+                    return;
+                }
+
+                int id = Integer.parseInt(textoId);
+                boolean eliminada = false;
+
+                Iterator<Tarea> iterator = Tarea.listaTareas.iterator();
+                while (iterator.hasNext()) {
+                    Tarea t = iterator.next();
+                    if (t.getId() == id) {
+                        if (t.getTareaCompletada()) {
+                            iterator.remove();
+                            eliminada = true;
+                            break;
+                        } else {
+                            JOptionPane.showMessageDialog(this, "La tarea no está marcada como completada.");
+                            return;
+                        }
+                    }
+                }
+
+                if (eliminada) {
+                    campoEliminar.setText("");
+                    Tarea.guardarEnArchivoTareas();
+                    cargarTareasEnTablas();
+                } else {
+                    JOptionPane.showMessageDialog(this, "No se encontró una tarea con ese ID.");
+                }
+
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "ID inválido. Debe ser un número entero.");
+            }
+        });
+
 
         // Panel Pomodoro
         JPanel panelPomodoro = new JPanel(new BorderLayout());
+
+        // Etiqueta del temporizador
         temporizadorLabel = new JLabel("25:00", SwingConstants.CENTER);
         temporizadorLabel.setFont(new Font("Arial", Font.BOLD, 48));
         panelPomodoro.add(temporizadorLabel, BorderLayout.CENTER);
+
+        // Panel inferior con botones
+        JPanel panelBotonesPomodoro = new JPanel(new FlowLayout());
         JButton botonIniciarPomodoro = new JButton("Iniciar Pomodoro");
-        panelPomodoro.add(botonIniciarPomodoro, BorderLayout.SOUTH);
+        JButton botonPausarPomodoro = new JButton("Pausar");
+        JButton botonContinuarPomodoro = new JButton("Continuar");
 
-        botonIniciarPomodoro.addActionListener(e -> iniciarTemporizador());
+        panelBotonesPomodoro.add(botonIniciarPomodoro);
+        panelBotonesPomodoro.add(botonPausarPomodoro);
+        panelBotonesPomodoro.add(botonContinuarPomodoro);
 
+        panelPomodoro.add(panelBotonesPomodoro, BorderLayout.SOUTH);
+
+        // Acción del botón Iniciar
+        botonIniciarPomodoro.addActionListener(e -> {
+            if (temporizadorPausado) {
+                // Reanudar desde pausa
+                temporizadorPausado = false;
+                iniciarTemporizador();
+            } else {
+                // Iniciar nuevo Pomodoro
+                tiempoRestante = 1500; //25 minutos
+                enDescanso = false;
+                iniciarTemporizador();
+            }
+        });
+
+        // Acción del botón Pausar
+        botonPausarPomodoro.addActionListener(e -> {
+            if (timer != null) {
+                timer.cancel();
+                temporizadorPausado = true;
+            }
+        });
+
+        // Acción del botón Continuar
+        botonContinuarPomodoro.addActionListener(e -> {
+            if (temporizadorPausado && tiempoRestante > 0) {
+                temporizadorPausado = false;
+                iniciarTemporizador();
+            }
+        });
+
+        //creacion de columnas a las tablas
         tabbedPane.addTab("Tareas Nuevas", panelNuevas);
         tabbedPane.addTab("En Progreso", panelProgreso);
         tabbedPane.addTab("Completadas", panelCompletadas);
         tabbedPane.addTab("Pomodoro", panelPomodoro);
 
         add(tabbedPane);
+    }
+
+    //metodo para iniciar el temporizador del pomodoro
+    private void iniciarTemporizador() {
+        if (timer != null) timer.cancel();
+
+        timer = new Timer();
+
+        timer.scheduleAtFixedRate(new TimerTask() {
+            public void run() {
+                SwingUtilities.invokeLater(() -> {
+                    if (tiempoRestante <= 0) {
+                        reproducirSonido("src/sonidos/alarma_wav.wav"); //aquí se llama al sonido
+
+                        timer.cancel();
+                        if (enDescanso) {
+                            JOptionPane.showMessageDialog(null, "Fin del descanso. Retoma el trabajo.");
+                            tiempoRestante = 1500;//25 minutos
+                            enDescanso = false;
+                        } else {
+                            JOptionPane.showMessageDialog(null, "Fin del Pomodoro. ¡Hora de descansar!");
+                            tiempoRestante = 600;//10 minutos
+                            enDescanso = true;
+                        }
+                        iniciarTemporizador();
+                    } else {
+                        int minutos = tiempoRestante / 60;
+                        int segundos = tiempoRestante % 60;
+                        temporizadorLabel.setText(String.format("%02d:%02d", minutos, segundos));
+                        tiempoRestante--;
+                    }
+                });
+            }
+        }, 0, 1000);
+    }
+
+    private void reproducirSonido(String ruta) {
+        try {
+            File archivoSonido = new File(ruta);
+            AudioInputStream audioStream = AudioSystem.getAudioInputStream(archivoSonido);
+            Clip clip = AudioSystem.getClip();
+            clip.open(audioStream);
+            clip.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void cargarTareasEnTablas() {
@@ -221,65 +420,6 @@ public class VentanaPrincipal extends JFrame {
                 modeloNuevas.addRow(new Object[]{t.getId(), t.getNombre(), t.getDuracion() / 60});
             }
         }
-    }
-
-    private void moverTareaAProgreso() {
-        int fila = tablaNuevas.getSelectedRow();
-
-        if (fila >= 0) {
-            int id = (int) modeloNuevas.getValueAt(fila, 0);
-            for (Tarea t : Tarea.listaTareas) {
-                if (t.getId() == id) {
-                    t.setEnProgreso(true);
-                    t.continuar();
-                    break;
-                }
-            }
-            Tarea.guardarEnArchivoTareas();
-            //cargarTareasEnTablas();
-        } else {
-            JOptionPane.showMessageDialog(this, "Selecciona una tarea antes de moverla.");
-        }
-    }
-
-    private void eliminarTareaCompletada() {
-        int fila = tablaCompletadas.getSelectedRow();
-        if (fila >= 0) {
-            int id = (int) modeloCompletadas.getValueAt(fila, 0);
-            Tarea.listaTareas.removeIf(t -> t.getId() == id);
-            Tarea.guardarEnArchivoTareas();
-            cargarTareasEnTablas();
-        }
-    }
-
-    private void iniciarTemporizador() {
-        if (timer != null) timer.cancel();
-        timer = new Timer();
-
-        timer.scheduleAtFixedRate(new TimerTask() {
-            public void run() {
-                SwingUtilities.invokeLater(() -> {
-                    if (tiempoRestante <= 0) {
-                        timer.cancel();
-                        if (enDescanso) {
-                            JOptionPane.showMessageDialog(null, "Fin del descanso. Retoma el trabajo.");
-                            tiempoRestante = 1500;
-                            enDescanso = false;
-                        } else {
-                            JOptionPane.showMessageDialog(null, "Fin del Pomodoro. ¡Hora de descansar!");
-                            tiempoRestante = 600;
-                            enDescanso = true;
-                        }
-                        iniciarTemporizador();
-                    } else {
-                        int minutos = tiempoRestante / 60;
-                        int segundos = tiempoRestante % 60;
-                        temporizadorLabel.setText(String.format("%02d:%02d", minutos, segundos));
-                        tiempoRestante--;
-                    }
-                });
-            }
-        }, 0, 1000);
     }
 
     private void iniciarCronometro() {
