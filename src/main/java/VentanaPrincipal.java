@@ -32,6 +32,15 @@ public class VentanaPrincipal extends JFrame {
 
         Tarea.listaTareas = new ArrayList<>(Tarea.cargarDatosDesdeArhivo());
 
+        // Add window closing handler to clean up resources
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosing(java.awt.event.WindowEvent windowEvent) {
+                limpiarRecursos();
+                System.exit(0);
+            }
+        });
+
         inicializarComponentes();
         cargarTareasEnTablas();
         configurarBotonesEnTabla();
@@ -360,7 +369,10 @@ public class VentanaPrincipal extends JFrame {
 
     //metodo para iniciar el temporizador del pomodoro
     private void iniciarTemporizador() {
-        if (timer != null) timer.cancel();
+        if (timer != null) {
+            timer.cancel();
+            timer.purge(); // Remove cancelled tasks from timer's queue
+        }
 
         timer = new Timer();
 
@@ -395,11 +407,25 @@ public class VentanaPrincipal extends JFrame {
     private void reproducirSonido(String ruta) {
         try {
             File archivoSonido = new File(ruta);
+            if (!archivoSonido.exists() || !archivoSonido.canRead()) {
+                System.err.println("Archivo de sonido no encontrado o no legible: " + ruta);
+                return;
+            }
+            
+            // Validate that the file is within expected directory to prevent path traversal
+            String canonicalPath = archivoSonido.getCanonicalPath();
+            String expectedBasePath = new File("src/sonidos").getCanonicalPath();
+            if (!canonicalPath.startsWith(expectedBasePath)) {
+                System.err.println("Ruta de archivo de sonido no válida por seguridad: " + ruta);
+                return;
+            }
+            
             AudioInputStream audioStream = AudioSystem.getAudioInputStream(archivoSonido);
             Clip clip = AudioSystem.getClip();
             clip.open(audioStream);
             clip.start();
         } catch (Exception e) {
+            System.err.println("Error al reproducir sonido: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -424,21 +450,36 @@ public class VentanaPrincipal extends JFrame {
 
     private void iniciarCronometro() {
         cronometro = new javax.swing.Timer(1000, e -> {
+            boolean hayCambios = false;
+            boolean tareasCompletadas = false;
+            
             for (int i = 0; i < tareasEnProgreso.size(); i++) {
                 Tarea t = tareasEnProgreso.get(i);
                 if (!t.isPausada()) {
                     int tiempo = t.getDuracion() - 1;
                     t.setDuracion(Math.max(tiempo, 0));
+                    hayCambios = true;
+                    
                     if (t.getDuracion() <= 0) {
                         t.setTareaCompletada(true);
                         t.setEnProgreso(false);
                         t.pausar();
+                        tareasCompletadas = true;
                     }
                 }
+                // Only update the specific cell that changed
                 modeloProgreso.setValueAt(t.obtenerTiempoRestanteFormato(), i, 2);
             }
-            Tarea.guardarEnArchivoTareas();
-            cargarTareasEnTablas();
+            
+            // Only save to file if there were actual changes (every 5 seconds or when tasks complete)
+            if (hayCambios && (System.currentTimeMillis() % 5000 < 1000 || tareasCompletadas)) {
+                Tarea.guardarEnArchivoTareas();
+            }
+            
+            // Only reload tables if tasks were completed (structure changed)
+            if (tareasCompletadas) {
+                cargarTareasEnTablas();
+            }
         });
         cronometro.start();
     }
@@ -485,6 +526,17 @@ public class VentanaPrincipal extends JFrame {
 
         public boolean isCellEditable(EventObject anEvent) {
             return true;
+        }
+    }
+
+    // Method to clean up resources when application closes
+    private void limpiarRecursos() {
+        if (timer != null) {
+            timer.cancel();
+            timer.purge();
+        }
+        if (cronometro != null) {
+            cronometro.stop();
         }
     }
 
