@@ -83,9 +83,17 @@ public class Tarea implements Serializable {
 
     // Guarda la lista de tareas en un archivo (serialización)
     public static void guardarEnArchivoTareas() {
-        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream("tareas.dat"))) {
+        String dataDir = System.getProperty("user.home") + File.separator + ".kanban-app";
+        File dir = new File(dataDir);
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        
+        String filePath = dataDir + File.separator + "tareas.dat";
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(filePath))) {
             oos.writeObject(listaTareas);
         } catch (IOException e) {
+            System.err.println("Error al guardar las tareas: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -93,8 +101,19 @@ public class Tarea implements Serializable {
     // Carga la lista de tareas desde el archivo
     public static List<Tarea> cargarDatosDesdeArhivo() {
         List<Tarea> tareas = new ArrayList<>();
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream("tareas.dat"))) {
-            tareas = (List<Tarea>) ois.readObject();
+        String dataDir = System.getProperty("user.home") + File.separator + ".kanban-app";
+        String filePath = dataDir + File.separator + "tareas.dat";
+        File file = new File(filePath);
+        
+        if (!file.exists()) {
+            System.out.println("Archivo de tareas no encontrado, creando nueva lista.");
+            return tareas;
+        }
+        
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(filePath))) {
+            @SuppressWarnings("unchecked")
+            List<Tarea> tareasLeidas = (List<Tarea>) ois.readObject();
+            tareas = tareasLeidas;
             // Actualizar contadorId para que no haya IDs repetidos
             int maxId = 0;
             for (Tarea t : tareas) {
@@ -102,7 +121,8 @@ public class Tarea implements Serializable {
                     maxId = t.getId();
                 }
             }
-            contadorId = maxId + 1;
+            // Ensure contadorId is always at least maxId + 1, but never goes backwards
+            contadorId = Math.max(contadorId, maxId + 1);
         } catch (IOException | ClassNotFoundException e) {
             // Si no existe archivo o error, retornamos lista vacía
             System.out.println("No se pudo cargar archivo de tareas, creando nueva lista.");
